@@ -71,17 +71,189 @@ async function init() {
   // Add teleport group to scene
   scene.add(teleportgroup);
 
-  // Floor
-  // 1. TODOO tuo tähän oma lanscape/maa
-  const floorGeo = new THREE.BoxGeometry(10, 0.2, 10);
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0x808080 });
+  // Floor - thin box that looks like a ground plane
+  const floorGeo = new THREE.BoxGeometry(50, 0.1, 50, 25, 1, 25);
+  const floorMat = new THREE.MeshStandardMaterial({
+    color: 0x8b5a34,
+    roughness: 0.8,
+    metalness: 0.2,
+  });
   const floor = new THREE.Mesh(floorGeo, floorMat);
-  floor.position.y = -0.1;
+  floor.position.y = -0.05;
   floor.receiveShadow = true;
   scene.add(floor);
 
   // Add floor to teleport group so we can teleport on it
   teleportgroup.add(floor);
+
+  // Add grid lines on the floor for detail
+  const gridHelper = new THREE.GridHelper(50, 50, 0x3a5c44, 0x5a8c6a);
+  gridHelper.position.y = 0.01; // Slightly above floor to prevent z-fighting
+  scene.add(gridHelper);
+
+  // Add some decorative elements on the floor
+  const detailGeo = new THREE.BoxGeometry(0.5, 0.05, 0.5);
+  const detailMat = new THREE.MeshStandardMaterial({ color: 0x3a5c44 });
+
+  // Add random detail patches
+  for (let i = 0; i < 15; i++) {
+    const detail = new THREE.Mesh(detailGeo, detailMat);
+    detail.position.set(
+      (Math.random() - 0.5) * 45,
+      0.03,
+      (Math.random() - 0.5) * 45
+    );
+    detail.rotation.y = Math.random() * Math.PI;
+    detail.receiveShadow = true;
+    scene.add(detail);
+  }
+
+  // Create walls around the floor
+  const wallMat = new THREE.MeshStandardMaterial({
+    color: 0x3a5c44,
+    roughness: 0.9,
+    metalness: 0.1,
+  });
+  const wallHeight = 3;
+  const wallThickness = 0.5;
+
+  // North wall
+  const northWall = new THREE.Mesh(
+    new THREE.BoxGeometry(50, wallHeight, wallThickness, 25, 15, 1),
+    wallMat
+  );
+  northWall.position.set(0, wallHeight / 2, -25);
+  northWall.castShadow = true;
+  northWall.receiveShadow = true;
+  scene.add(northWall);
+
+  // South wall
+  const southWall = new THREE.Mesh(
+    new THREE.BoxGeometry(50, wallHeight, wallThickness, 25, 15, 1),
+    wallMat
+  );
+  southWall.position.set(0, wallHeight / 2, 25);
+  southWall.castShadow = true;
+  southWall.receiveShadow = true;
+  scene.add(southWall);
+
+  // East wall
+  const eastWall = new THREE.Mesh(
+    new THREE.BoxGeometry(wallThickness, wallHeight, 50, 1, 15, 25),
+    wallMat
+  );
+  eastWall.position.set(25, wallHeight / 2, 0);
+  eastWall.castShadow = true;
+  eastWall.receiveShadow = true;
+  scene.add(eastWall);
+
+  // West wall
+  const westWall = new THREE.Mesh(
+    new THREE.BoxGeometry(wallThickness, wallHeight, 50, 1, 15, 25),
+    wallMat
+  );
+  westWall.position.set(-25, wallHeight / 2, 0);
+  westWall.castShadow = true;
+  westWall.receiveShadow = true;
+  scene.add(westWall);
+
+  // Add decorative trim on top of walls
+  const trimMat = new THREE.MeshStandardMaterial({
+    color: 0x6b5344,
+    roughness: 0.7,
+    metalness: 0.3,
+  });
+  const trimHeight = 0.2;
+  const trimWidth = 0.6;
+
+  // North wall trim
+  const northTrim = new THREE.Mesh(
+    new THREE.BoxGeometry(50.2, trimHeight, trimWidth),
+    trimMat
+  );
+  northTrim.position.set(0, wallHeight + trimHeight / 2, -25);
+  northTrim.castShadow = true;
+  scene.add(northTrim);
+
+  // South wall trim
+  const southTrim = new THREE.Mesh(
+    new THREE.BoxGeometry(50.2, trimHeight, trimWidth),
+    trimMat
+  );
+  southTrim.position.set(0, wallHeight + trimHeight / 2, 25);
+  southTrim.castShadow = true;
+  scene.add(southTrim);
+
+  // East wall trim
+  const eastTrim = new THREE.Mesh(
+    new THREE.BoxGeometry(trimWidth, trimHeight, 50.2),
+    trimMat
+  );
+  eastTrim.position.set(25, wallHeight + trimHeight / 2, 0);
+  eastTrim.castShadow = true;
+  scene.add(eastTrim);
+
+  // West wall trim
+  const westTrim = new THREE.Mesh(
+    new THREE.BoxGeometry(trimWidth, trimHeight, 50.2),
+    trimMat
+  );
+  westTrim.position.set(-25, wallHeight + trimHeight / 2, 0);
+  westTrim.castShadow = true;
+  scene.add(westTrim);
+
+  // Add vertical support beams on walls
+  const beamMat = new THREE.MeshStandardMaterial({
+    color: 0x5a4433,
+    roughness: 0.8,
+    metalness: 0.2,
+  });
+
+  // Add beams to north and south walls
+  for (let i = -2; i <= 2; i++) {
+    const xPos = i * 10;
+
+    // North wall beams
+    const northBeam = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3, wallHeight, 0.3),
+      beamMat
+    );
+    northBeam.position.set(xPos, wallHeight / 2, -24.9);
+    northBeam.castShadow = true;
+    scene.add(northBeam);
+
+    // South wall beams
+    const southBeam = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3, wallHeight, 0.3),
+      beamMat
+    );
+    southBeam.position.set(xPos, wallHeight / 2, 24.9);
+    southBeam.castShadow = true;
+    scene.add(southBeam);
+  }
+
+  // Add beams to east and west walls
+  for (let i = -2; i <= 2; i++) {
+    const zPos = i * 10;
+
+    // East wall beams
+    const eastBeam = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3, wallHeight, 0.3),
+      beamMat
+    );
+    eastBeam.position.set(24.9, wallHeight / 2, zPos);
+    eastBeam.castShadow = true;
+    scene.add(eastBeam);
+
+    // West wall beams
+    const westBeam = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3, wallHeight, 0.3),
+      beamMat
+    );
+    westBeam.position.set(-24.9, wallHeight / 2, zPos);
+    westBeam.castShadow = true;
+    scene.add(westBeam);
+  }
 
   // Create teleport marker
   const markerGeo = new THREE.RingGeometry(0.2, 0.3, 32);
@@ -95,7 +267,7 @@ async function init() {
   scene.add(marker);
 
   // Init physics
-  await initPhysics(floor);
+  await initPhysics(floor, northWall, southWall, eastWall, westWall);
 
   // Init VR
   initVR();
@@ -105,11 +277,17 @@ async function init() {
   renderer.setAnimationLoop(animate);
 }
 
-async function initPhysics(floor) {
+async function initPhysics(floor, northWall, southWall, eastWall, westWall) {
   physics = await RapierPhysics();
   physics.addScene(scene);
 
   physics.addMesh(floor, 0); // static
+
+  // Add walls to physics (static, no mass)
+  physics.addMesh(northWall, 0);
+  physics.addMesh(southWall, 0);
+  physics.addMesh(eastWall, 0);
+  physics.addMesh(westWall, 0);
 
   const SPAWN_RANGE = 8; // width of the square in world units
 
