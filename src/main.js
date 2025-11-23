@@ -1,10 +1,10 @@
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { RapierPhysics } from "three/addons/physics/RapierPhysics.js";
-import { RapierHelper } from "three/addons/helpers/RapierHelper.js";
-import { VRButton } from "three/addons/webxr/VRButton.js";
-import { XRControllerModelFactory } from "three/addons/webxr/XRControllerModelFactory.js";
-import Stats from "three/addons/libs/stats.module.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { RapierPhysics } from "three/examples/jsm/physics/RapierPhysics.js";
+// import { RapierHelper } from "three/examples/jsm/helpers/RapierHelper.js"; // Not available in this Three.js version
+import { VRButton } from "three/examples/jsm/webxr/VRButton.js";
+import { XRControllerModelFactory } from "three/examples/jsm/webxr/XRControllerModelFactory.js";
+import Stats from "three/examples/jsm/libs/stats.module.js";
 
 let camera, scene, renderer, controls, stats;
 let physics, physicsHelper;
@@ -16,9 +16,16 @@ let controllerGrip1, controllerGrip2;
 const raycaster = new THREE.Raycaster();
 const tempVec = new THREE.Vector3();
 
-// Throwing helpers
+// Throwing mechanics
 const tempPos = new THREE.Vector3();
-const THROW_MULTIPLIER = 3; // nosta/laskemalla säädät heiton pituutta
+const THROW_MULTIPLIER = 3; // adjust to control throw strength
+
+// Teleport system
+let marker, baseReferenceSpace;
+let INTERSECTION;
+const tempMatrix = new THREE.Matrix4();
+let teleportgroup = new THREE.Group();
+teleportgroup.name = "Teleport-Group";
 
 // This group stores ALL pickable / physics-enabled meshes
 const group = new THREE.Group();
@@ -61,6 +68,9 @@ async function init() {
   // Add group to scene
   scene.add(group);
 
+  // Add teleport group to scene
+  scene.add(teleportgroup);
+
   // Floor
   // 1. TODOO tuo tähän oma lanscape/maa
   const floorGeo = new THREE.BoxGeometry(10, 0.2, 10);
@@ -70,35 +80,23 @@ async function init() {
   floor.receiveShadow = true;
   scene.add(floor);
 
+  // Add floor to teleport group so we can teleport on it
+  teleportgroup.add(floor);
+
+  // Create teleport marker
+  const markerGeo = new THREE.RingGeometry(0.2, 0.3, 32);
+  const markerMat = new THREE.MeshBasicMaterial({
+    color: 0x00ff00,
+    side: THREE.DoubleSide,
+  });
+  marker = new THREE.Mesh(markerGeo, markerMat);
+  marker.rotation.x = -Math.PI / 2;
+  marker.visible = false;
+  scene.add(marker);
+
   // Init physics
   await initPhysics(floor);
 
-  physics = await RapierPhysics();
-  physics.addScene(scene);
-
-  physics.addMesh(floor, 0); // static
-
-  const geometry = new THREE.SphereGeometry(0.2, 32, 32);
-  const material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-  const material2 = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-  const material3 = new THREE.MeshStandardMaterial({ color: 0x0000ff });
-  const sphere = new THREE.Mesh(geometry, material);
-  const sphere2 = new THREE.Mesh(geometry, material2);
-  const sphere3 = new THREE.Mesh(geometry, material3);
-  sphere.castShadow = true;
-  sphere2.castShadow = true;
-  sphere3.castShadow = true;
-  scene.add(sphere, sphere2, sphere3);
-
-  physics.addMesh(sphere, 1); // dynamic
-  sphere.position.set(0, 3, 0);
-  sphere2.position.set(1, 5, 0);
-  sphere3.position.set(2, 7, 0);
-
-  group.add(sphere, sphere2, sphere3);
-  physics.addMesh(sphere, 1, 0.2);
-  physics.addMesh(sphere2, 1, 0.2);
-  physics.addMesh(sphere3, 1, 0.2);
   // Init VR
   initVR();
 
@@ -126,8 +124,19 @@ async function initPhysics(floor) {
     );
   }
 
-  physicsHelper = new RapierHelper(physics.world);
-  scene.add(physicsHelper);
+  // Add some balls
+  for (let i = 0; i < 3; i++) {
+    addBall(
+      new THREE.Vector3(
+        (Math.random() - 0.5) * SPAWN_RANGE,
+        2.0 + i * 0.6,
+        (Math.random() - 0.5) * SPAWN_RANGE
+      )
+    );
+  }
+
+  // physicsHelper = new RapierHelper(physics.world); // RapierHelper not available in this Three.js version
+  // scene.add(physicsHelper);
 }
 
 function addBox(position) {
@@ -146,6 +155,21 @@ function addBox(position) {
   physics.addMesh(mesh, 1, 0.2);
 }
 
+function addBall(position) {
+  const geo = new THREE.SphereGeometry(0.3, 32, 32);
+  const mat = new THREE.MeshStandardMaterial({
+    color: Math.floor(Math.random() * 0xffffff),
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.position.copy(position);
+
+  // add to group so you can pick the object
+  group.add(mesh);
+
+  physics.addMesh(mesh, 1, 0.2);
+}
+
 // -----------------------------
 //    VR SETUP
 // -----------------------------
@@ -153,18 +177,27 @@ function addBox(position) {
 function initVR() {
   document.body.appendChild(VRButton.createButton(renderer));
 
+  renderer.xr.addEventListener(
+    "sessionstart",
+    () => (baseReferenceSpace = renderer.xr.getReferenceSpace())
+  );
+
   const controllerModelFactory = new XRControllerModelFactory();
 
   // Controller 1
   controller1 = renderer.xr.getController(0);
   controller1.addEventListener("selectstart", onSelectStart);
   controller1.addEventListener("selectend", onSelectEnd);
+  controller1.addEventListener("squeezestart", onSqueezeStart);
+  controller1.addEventListener("squeezeend", onSqueezeEnd);
   scene.add(controller1);
 
   // Controller 2
   controller2 = renderer.xr.getController(1);
   controller2.addEventListener("selectstart", onSelectStart);
   controller2.addEventListener("selectend", onSelectEnd);
+  controller2.addEventListener("squeezestart", onSqueezeStart);
+  controller2.addEventListener("squeezeend", onSqueezeEnd);
   scene.add(controller2);
 
   // Grips (visual models)
@@ -213,18 +246,19 @@ function onSelectStart(event) {
   const intersection = intersections[0];
   const object = intersection.object;
 
-  // Convert hit point (world) -> controller local space
-  const localPoint = controller.worldToLocal(tempVec.copy(intersection.point));
-
-  // Remove from physics
-  physics.removeMesh(object);
+  // Note: Can't remove from physics in this Three.js RapierPhysics version
+  // The physics body will stay but we hide the mesh
 
   // Attach to controller (follow hand)
   object.material.emissive.setHex(0x333333);
-  controller.add(object);
 
-  // Use the local hit point as reference for moving the box to right location
-  object.position.copy(localPoint);
+  // Store current world position/rotation before reparenting
+  const worldPosition = new THREE.Vector3();
+  const worldQuaternion = new THREE.Quaternion();
+  object.getWorldPosition(worldPosition);
+  object.getWorldQuaternion(worldQuaternion);
+
+  controller.attach(object);
 
   controller.userData.selected = object;
 }
@@ -243,12 +277,12 @@ function onSelectEnd(event) {
   // Re-add to physics with new global transform
   physics.addMesh(object, 1, 0.2);
 
-  // 🔥 Käden liikkeen suunta → heiton nopeus
+  // 🔥 Apply throwing velocity based on controller movement
   const controllerVel = controller.userData.velocity;
   if (controllerVel) {
     const throwVel = controllerVel.clone().multiplyScalar(THROW_MULTIPLIER);
 
-    // (valinnainen rajoitus, jos haluat max-nopeuden)
+    // Optional: limit max throw speed
     // const maxSpeed = 10;
     // if (throwVel.length() > maxSpeed) {
     //   throwVel.setLength(maxSpeed);
@@ -271,6 +305,58 @@ function highlightController(controller) {
   } else {
     line.scale.z = 1.5;
   }
+}
+
+// -----------------------------
+//  XR TELEPORT
+// -----------------------------
+
+function onSqueezeStart() {
+  this.userData.isSqueezing = true;
+  console.log("Controller squeeze started");
+}
+
+function onSqueezeEnd() {
+  this.userData.isSqueezing = false;
+  console.log("squeezeend");
+  if (INTERSECTION) {
+    const offsetPosition = {
+      x: -INTERSECTION.x,
+      y: -INTERSECTION.y,
+      z: -INTERSECTION.z,
+      w: 1,
+    };
+    const offsetRotation = new THREE.Quaternion();
+    const transform = new XRRigidTransform(offsetPosition, offsetRotation);
+    const teleportSpaceOffset =
+      baseReferenceSpace.getOffsetReferenceSpace(transform);
+    renderer.xr.setReferenceSpace(teleportSpaceOffset);
+  }
+}
+
+function moveMarker() {
+  INTERSECTION = undefined;
+  if (controller1.userData.isSqueezing === true) {
+    tempMatrix.identity().extractRotation(controller1.matrixWorld);
+    raycaster.ray.origin.setFromMatrixPosition(controller1.matrixWorld);
+    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+    const intersects = raycaster.intersectObjects(teleportgroup.children, true);
+    if (intersects.length > 0) {
+      INTERSECTION = intersects[0].point;
+      console.log(intersects[0]);
+      console.log(INTERSECTION);
+    }
+  } else if (controller2.userData.isSqueezing === true) {
+    tempMatrix.identity().extractRotation(controller2.matrixWorld);
+    raycaster.ray.origin.setFromMatrixPosition(controller2.matrixWorld);
+    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+    const intersects = raycaster.intersectObjects(teleportgroup.children, true);
+    if (intersects.length > 0) {
+      INTERSECTION = intersects[0].point;
+    }
+  }
+  if (INTERSECTION) marker.position.copy(INTERSECTION);
+  marker.visible = INTERSECTION !== undefined;
 }
 
 // -----------------------------
@@ -313,23 +399,24 @@ function animate() {
   const delta = now - lastTime;
   lastTime = now;
 
-  // Päivitä ohjainten nopeus
+  // Update controller velocities for throwing
   updateControllerVelocity(controller1, delta);
   updateControllerVelocity(controller2, delta);
-
-  // Step physics simulation
 
   // Remove fallen objects
   for (let i = group.children.length - 1; i >= 0; i--) {
     const mesh = group.children[i];
     if (mesh.position.y < -5) {
-      physics.removeMesh(mesh);
+      // Note: Can't remove from physics in this Three.js RapierPhysics version
+      // Just remove from scene
       group.remove(mesh);
       scene.remove(mesh);
     }
   }
 
-  if (physicsHelper) physicsHelper.update(); // guard
+  // physicsHelper.update(); // Commented out - RapierHelper not available
+
+  moveMarker();
 
   highlightController(controller1);
   highlightController(controller2);
